@@ -5,6 +5,11 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Optional contribution branch to test before opening an upstream PR
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -15,12 +20,21 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
       - name: Resolve upstream dependencies
-        run: go mod download && go mod verify
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          if [ -n "$SOURCE_REF" ]; then
+            go mod edit -droprequire=github.com/lejianwen/rustdesk-api/v2 -dropreplace=github.com/lejianwen/rustdesk-api/v2
+            go mod tidy
+          fi
+          go mod download && go mod verify
       - name: Test native login options and related packages
         run: go test -mod=readonly -count=1 -timeout=120s ./http/controller/api ./utils ./service ./lib/jwt ./lib/lock
       - name: Check formatting
@@ -33,9 +47,10 @@ jobs:
           CC: musl-gcc
         run: |
           mkdir -p out
-          printf '4.1.8-korsun.%s\n' "${GITHUB_SHA:0:7}" > resources/version
+          SOURCE_SHA=$(git rev-parse HEAD)
+          printf '4.1.8-korsun.%s\n' "${SOURCE_SHA:0:7}" > resources/version
           go build -trimpath -ldflags '-s -w -linkmode external -extldflags "-static"' -o out/apimain ./cmd/apimain.go
-          printf '%s\n' "$GITHUB_SHA" > out/COMMIT
+          printf '%s\n' "$SOURCE_SHA" > out/COMMIT
           cd out
           sha256sum apimain > SHA256SUMS
       - uses: actions/upload-artifact@v7
