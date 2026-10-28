@@ -80,6 +80,7 @@ func (ct *Peer) Create(c *gin.Context) {
 // @Param id query string false "ID"
 // @Param hostname query string false "主机名"
 // @Param uuids query string false "uuids 用逗号分隔"
+// @Param version query string false "版本号"
 // @Success 200 {object} response.Response{data=model.PeerList}
 // @Failure 500 {object} response.Response
 // @Router /admin/peer/list [get]
@@ -90,7 +91,12 @@ func (ct *Peer) List(c *gin.Context) {
 		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError")+err.Error())
 		return
 	}
-	res := service.AllService.PeerService.List(query.Page, query.PageSize, func(tx *gorm.DB) {
+	// 判断排序字段
+	orderBy := "alias" // 默认按时间
+	if query.Alias == "time" {
+		orderBy = "time"
+	}
+	res := service.AllService.PeerService.List(query.Page, query.PageSize, orderBy, func(tx *gorm.DB) {
 		if query.TimeAgo > 0 {
 			lt := time.Now().Unix() - int64(query.TimeAgo)
 			tx.Where("last_online_time < ?", lt)
@@ -114,8 +120,11 @@ func (ct *Peer) List(c *gin.Context) {
 		if query.Ip != "" {
 			tx.Where("last_online_ip like ?", "%"+query.Ip+"%")
 		}
-		if query.Alias != "" {
+		if query.Alias != "" && query.Alias != "time" {
 			tx.Where("alias like ?", "%"+query.Alias+"%")
+		}
+		if query.Version != "" {
+			tx.Where("version like ?", "%"+query.Version+"%")
 		}
 	})
 	response.Success(c, res)
@@ -181,6 +190,10 @@ func (ct *Peer) Delete(c *gin.Context) {
 	}
 	u := service.AllService.PeerService.InfoByRowId(f.RowId)
 	if u.RowId > 0 {
+		// 删除请求体只有 row_id，把设备ID并入操作日志详情
+		c.Set("op_log_extra", gin.H{
+			"id": u.Id,
+		})
 		err := service.AllService.PeerService.Delete(u)
 		if err == nil {
 			response.Success(c, nil)
@@ -231,7 +244,7 @@ func (ct *Peer) SimpleData(c *gin.Context) {
 		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError"))
 		return
 	}
-	res := service.AllService.PeerService.List(1, 99999, func(tx *gorm.DB) {
+	res := service.AllService.PeerService.List(1, 99999, "alias", func(tx *gorm.DB) {
 		//可以公开的情报
 		tx.Select("id,version")
 		tx.Where("id in (?)", f.Ids)

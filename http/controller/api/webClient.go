@@ -68,6 +68,8 @@ func (i *WebClient) SharedPeer(c *gin.Context) {
 		//判断是否过期,created_at + expire > now
 		ca := time.Time(sr.CreatedAt)
 		if ca.Add(time.Second * time.Duration(sr.Expire)).Before(time.Now()) {
+			//过期删除记录
+			service.AllService.AddressBookService.DeleteAllShareByWebClientId(sr.PeerId)
 			response.Fail(c, 101, "share expired")
 			return
 		}
@@ -87,6 +89,40 @@ func (i *WebClient) SharedPeer(c *gin.Context) {
 		"key":       global.Config.Rustdesk.Key,
 		"peer":      pp,
 	})
+}
+
+// QuerySharePeer 查询 ShareByWebClient PeerId
+// @Tags WEBCLIENT
+// @Summary 查询分享的 PeerId 是否存在
+// @Description 查询 PeerId 是否在全局缓存中存在
+// @Accept  json
+// @Produce  json
+// @Param peer_id query string true "PeerId"
+// @Param conn_type query string true "连接类型(default_conn,file_transfer,terminal)"
+// @Success 200 {object} response.Response
+// @Failure 400 {object} response.Response
+// @Failure 404 {object} response.Response
+// @Router /query-share-peer [get]
+func (i *WebClient) QuerySharePeer(c *gin.Context) {
+	peerId := c.Query("peer_id")
+	if peerId == "" {
+		response.Fail(c, 400, "peer_id is required")
+		return
+	}
+
+	connType := c.Query("conn_type")
+	if connType == "" {
+		response.Fail(c, 400, "conn_type is required")
+		return
+	}
+
+	exists := service.AllService.AddressBookService.ConsumeShareByWebClientId(peerId, connType)
+	if !exists {
+		response.Fail(c, 404, "peer not found")
+		return
+	}
+
+	response.Success(c, gin.H{"peer_id": peerId})
 }
 
 // ServerConfigV2 服务配置

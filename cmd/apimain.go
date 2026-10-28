@@ -23,7 +23,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const DatabaseVersion = 265
+const DatabaseVersion = 274
 
 // @title 管理系统API
 // @version 1.0
@@ -203,6 +203,9 @@ func InitGlobal() {
 	//service
 	service.New(&global.Config, global.DB, global.Logger, global.Jwt, global.Lock)
 
+	// 启动心跳缓冲后台刷写协程
+	service.AllService.PeerService.StartHeartbeatFlusher()
+
 	global.LoginLimiter = utils.NewLoginLimiter(utils.SecurityPolicy{
 		CaptchaThreshold: global.Config.App.CaptchaThreshold,
 		BanThreshold:     global.Config.App.BanThreshold,
@@ -306,6 +309,8 @@ func Migrate(version uint) {
 		&model.AddressBookCollectionRule{},
 		&model.ServerCmd{},
 		&model.DeviceGroup{},
+		&model.PeerStrategy{},
+		&model.OperationLog{},
 	)
 	if err != nil {
 		global.Logger.Error("migrate err :=>", err)

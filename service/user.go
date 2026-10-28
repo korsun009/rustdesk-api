@@ -175,6 +175,9 @@ func (us *UserService) Create(u *model.User) error {
 	}
 	u.Username = us.formatUsername(u.Username)
 	var err error
+	if u.Password == "" {
+		u.Password = utils.DefaultInitPassword
+	}
 	u.Password, err = utils.EncryptPassword(u.Password)
 	if err != nil {
 		return err
@@ -398,7 +401,7 @@ func (us *UserService) UserThirdInfo(userId uint, op string) *model.UserThird {
 // FindLatestUserIdFromLoginLogByUuid 根据uuid和设备id查找最后登录的用户id
 func (us *UserService) FindLatestUserIdFromLoginLogByUuid(uuid string, deviceId string) uint {
 	llog := &model.LoginLog{}
-	DB.Where("uuid = ? and device_id = ?", uuid, deviceId).Order("id desc").First(llog)
+	DB.Select("user_id").Where("uuid = ? and device_id = ?", uuid, deviceId).Order("id desc").First(llog)
 	return llog.UserId
 }
 

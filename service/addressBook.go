@@ -4,9 +4,19 @@ import (
 	"encoding/json"
 	"github.com/google/uuid"
 	"github.com/lejianwen/rustdesk-api/v2/model"
+	"github.com/lejianwen/rustdesk-api/v2/model/custom_types"
 	"gorm.io/gorm"
 	"strings"
+	"sync"
 )
+
+var (
+	SharePeerIds   = make(map[string]map[string]struct{})
+	SharePeerIdsMu sync.Mutex
+)
+
+// 所有连接类型
+var ShareConnTypes = []string{"default_conn", "file_transfer", "terminal"}
 
 type AddressBookService struct {
 }
@@ -111,7 +121,10 @@ func (s *AddressBookService) List(page, pageSize uint, where func(tx *gorm.DB)) 
 		where(tx)
 	}
 	tx.Count(&res.Total)
-	tx.Scopes(Paginate(page, pageSize))
+	tx.Scopes(Paginate(page, pageSize)).
+		Order("(CASE WHEN alias = '' THEN 0 ELSE 1 END) ASC").
+		Order("collection_id ASC").
+		Order("alias ASC")
 	tx.Find(&res.AddressBooks)
 	return
 }
@@ -131,6 +144,12 @@ func (s *AddressBookService) Create(u *model.AddressBook) error {
 	res := DB.Create(u).Error
 	return res
 }
+
+// 清理在其他全员集合中的旧条目
+func (s *AddressBookService) CleanUp(peerId string, collectionId uint) {
+	DB.Where("id = ? AND user_id = 1 AND collection_id != ?", peerId, collectionId).Delete(&model.AddressBook{})
+}
+
 func (s *AddressBookService) Delete(u *model.AddressBook) error {
 	return DB.Delete(u).Error
 }
@@ -152,14 +171,51 @@ func (s *AddressBookService) UpdateAll(u *model.AddressBook) error {
 
 // ShareByWebClient 分享
 func (s *AddressBookService) ShareByWebClient(m *model.ShareRecord) error {
+	s.AddShareByWebClientId(m.PeerId)
 	m.ShareToken = uuid.New().String()
 	return DB.Create(m).Error
+}
+
+// 添加ShareByWebClient PeerId，初始化所有连接类型
+func (s *AddressBookService) AddShareByWebClientId(id string) {
+	SharePeerIdsMu.Lock()
+	defer SharePeerIdsMu.Unlock()
+	connTypes := make(map[string]struct{})
+	for _, ct := range ShareConnTypes {
+		connTypes[ct] = struct{}{}
+	}
+	SharePeerIds[id] = connTypes
+}
+
+// ConsumeShareByWebClientId 查询并消费（删除）指定连接类型，返回是否存在
+func (s *AddressBookService) ConsumeShareByWebClientId(id string, connType string) bool {
+	SharePeerIdsMu.Lock()
+	defer SharePeerIdsMu.Unlock()
+	connTypes, ok := SharePeerIds[id]
+	if !ok {
+		return false
+	}
+	if _, exists := connTypes[connType]; !exists {
+		return false
+	}
+	delete(connTypes, connType)
+	if len(connTypes) == 0 {
+		delete(SharePeerIds, id)
+	}
+	return true
+}
+
+// DeleteAllShareByWebClientId 清理所有连接类型
+func (s *AddressBookService) DeleteAllShareByWebClientId(id string) {
+	SharePeerIdsMu.Lock()
+	defer SharePeerIdsMu.Unlock()
+	delete(SharePeerIds, id)
 }
 
 // SharedPeer
 func (s *AddressBookService) SharedPeer(shareToken string) *model.ShareRecord {
 	m := &model.ShareRecord{}
-	DB.Where("share_token = ?", shareToken).First(m)
+	DB.Where("share_token = ?", shareToken).Last(m)
 	return m
 }
 
@@ -330,6 +386,72 @@ func (s *AddressBookService) DeleteRule(t *model.AddressBookCollectionRule) erro
 func (s *AddressBookService) CheckCollectionOwner(uid uint, cid uint) bool {
 	p := s.CollectionInfoById(cid)
 	return p.UserId == uid
+}
+
+// ApplyPresetToAddressBook 根据客户端上报的预设值自动将设备添加到指定地址簿集合
+// 参数：
+//   peerId   - 设备ID
+//   os       - 操作系统信息
+//   abName   - preset-address-book-name，地址簿集合名称
+//   abAlias  - preset-address-book-alias，地址簿中的别名
+//   hostname - 主机名（客户端已将 preset-device-name 写入 hostname 字段）
+//   username - 用户名（客户端已将 preset-device-username 写入 username 字段）
+func (s *AddressBookService) ApplyPresetToAddressBook(peerRowId uint, peerId, os, abName, abAlias, hostname, username string) {
+	if abName == "" {
+		return
+	}
+
+	// 查找地址簿集合（admin用户 user_id=1 下）
+	collection := &model.AddressBookCollection{}
+	if DB.Where("name = ? AND user_id = 1", abName).First(collection).Error != nil {
+		return
+	}
+
+	// 检查该集合下是否已有该设备的条目
+	existing := &model.AddressBook{}
+	if DB.Where("id = ? AND collection_id = ?", peerId, collection.Id).First(existing).Error == nil {
+		// 已存在，仅用非空值更新，避免覆盖管理员手动设置的别名
+		updates := map[string]interface{}{}
+		if abAlias != "" {
+			updates["alias"] = abAlias
+		}
+		if hostname != "" {
+			updates["hostname"] = hostname
+		}
+		if username != "" {
+			updates["username"] = username
+		}
+		if len(updates) > 0 {
+			DB.Model(existing).Updates(updates)
+		}
+		if peerRowId > 0 {
+			AllService.PeerService.UpdateAlias(peerRowId, collection.Id, abAlias, username, hostname)
+		}
+		return
+	}
+
+	// 创建新条目
+	platform := s.PlatformFromOs(os)
+	ab := &model.AddressBook{
+		Id:           peerId,
+		Alias:        abAlias,
+		Hostname:     hostname,
+		Username:     username,
+		Platform:     platform,
+		Tags:         custom_types.AutoJson("[]"),
+		UserId:       1,
+		CollectionId: collection.Id,
+	}
+	if err := DB.Create(ab).Error; err != nil {
+		// 创建失败时静默处理，不影响 sysinfo 主流程
+		_ = err
+	} else {
+		// 删除该设备在其他全员集合中的旧条目
+		s.CleanUp(peerId, collection.Id)
+		if peerRowId > 0 {
+			AllService.PeerService.UpdateAlias(peerRowId, collection.Id, abAlias, username, hostname)
+		}
+	}
 }
 
 func (s *AddressBookService) BatchUpdateTags(abs []*model.AddressBook, tags []string) error {

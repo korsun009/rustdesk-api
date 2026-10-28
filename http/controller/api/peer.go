@@ -30,28 +30,32 @@ func (p *Peer) SysInfo(c *gin.Context) {
 		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
 		return
 	}
-	fpe := f.ToPeer()
 	pe := service.AllService.PeerService.FindById(f.Id)
 	if pe.RowId == 0 {
 		pe = f.ToPeer()
 		pe.UserId = service.AllService.UserService.FindLatestUserIdFromLoginLogByUuid(pe.Uuid, pe.Id)
+		pe.Alias = f.PresetAddressBookAlias
 		err = service.AllService.PeerService.Create(pe)
 		if err != nil {
 			response.Error(c, response.TranslateMsg(c, "OperationFailed")+err.Error())
 			return
 		}
 	} else {
-		if pe.UserId == 0 {
-			pe.UserId = service.AllService.UserService.FindLatestUserIdFromLoginLogByUuid(pe.Uuid, pe.Id)
-		}
+		fpe := f.ToPeer()
 		fpe.RowId = pe.RowId
 		fpe.UserId = pe.UserId
+		fpe.Alias = f.PresetAddressBookAlias
 		err = service.AllService.PeerService.Update(fpe)
 		if err != nil {
 			response.Error(c, response.TranslateMsg(c, "OperationFailed")+err.Error())
 			return
 		}
 	}
+	// 根据客户端上报的预设值自动将设备添加到地址簿
+	service.AllService.AddressBookService.ApplyPresetToAddressBook(
+		pe.RowId, f.Id, f.Os, f.PresetAddressBookName, f.PresetAddressBookAlias, f.Hostname, f.Username,
+	)
+
 	//SYSINFO_UPDATED 上传成功
 	//ID_NOT_FOUND 下次心跳会上传
 	//直接响应文本

@@ -7,7 +7,10 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/http/request/admin"
 	"github.com/lejianwen/rustdesk-api/v2/http/response"
 	"github.com/lejianwen/rustdesk-api/v2/service"
+	"github.com/lejianwen/rustdesk-api/v2/model"
 	"gorm.io/gorm"
+	"sync"
+	"fmt"
 )
 
 type AddressBook struct{}
@@ -83,12 +86,21 @@ func (ct *AddressBook) Create(c *gin.Context) {
 		return
 	}
 	t := f.ToAddressBook()
-	u := service.AllService.UserService.CurUser(c)
-	t.UserId = u.Id
+	if t.UserId != 1 {
+		u := service.AllService.UserService.CurUser(c)
+		t.UserId = u.Id
+	}
 	if t.CollectionId > 0 && !service.AllService.AddressBookService.CheckCollectionOwner(t.UserId, t.CollectionId) {
 		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError"))
 		return
 	}
+
+	key := fmt.Sprintf("%d_%d_%d", t.UserId, t.Id, t.CollectionId)
+	v, _ := global.AddressBookLockMap.LoadOrStore(key, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+
+	mu.Lock()
+	defer mu.Unlock()
 
 	ex := service.AllService.AddressBookService.InfoByUserIdAndIdAndCid(t.UserId, t.Id, t.CollectionId)
 	if ex.RowId > 0 {
@@ -101,6 +113,13 @@ func (ct *AddressBook) Create(c *gin.Context) {
 		response.Fail(c, 101, response.TranslateMsg(c, "OperationFailed")+err.Error())
 		return
 	}
+
+	peer := service.AllService.PeerService.FindById(t.Id)
+	if peer != nil && peer.RowId != 0 {
+		upp := &model.Peer{RowId: peer.RowId, Alias: t.Alias}
+		service.AllService.PeerService.Update(upp)
+	}
+
 	response.Success(c, nil)
 }
 
@@ -127,7 +146,7 @@ func (ct *AddressBook) Update(c *gin.Context) {
 		return
 	}
 	if f.RowId == 0 {
-		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError"))
+		response.Fail(c, 101, response.TranslateMsg(c, "ItemNotFound"))
 		return
 	}
 	u := service.AllService.UserService.CurUser(c)
@@ -223,7 +242,7 @@ func (ct *AddressBook) BatchCreateFromPeers(c *gin.Context) {
 		return
 	}
 	pl := int64(len(f.PeerIds))
-	peers := service.AllService.PeerService.List(1, uint(pl), func(tx *gorm.DB) {
+	peers := service.AllService.PeerService.List(1, uint(pl), "alias", func(tx *gorm.DB) {
 		tx.Where("row_id in ?", f.PeerIds)
 		tx.Where("user_id = ?", u.Id)
 	})

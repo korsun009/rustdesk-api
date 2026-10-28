@@ -33,7 +33,7 @@ jobs:
           CC: musl-gcc
         run: |
           mkdir -p out
-          printf '2.7-korsun.%s\n' "${GITHUB_SHA:0:7}" > resources/version
+          printf '4.1.8-korsun.%s\n' "${GITHUB_SHA:0:7}" > resources/version
           go build -trimpath -ldflags '-s -w -linkmode external -extldflags "-static"' -o out/apimain ./cmd/apimain.go
           printf '%s\n' "$GITHUB_SHA" > out/COMMIT
           cd out

@@ -21,6 +21,9 @@ type PeerForm struct {
 	Username string `json:"username"`
 	Uuid     string `json:"uuid"`
 	Version  string `json:"version"`
+	// 预设地址簿相关字段，由客户端 sysinfo 一起上报
+	PresetAddressBookName     string `json:"preset-address-book-name"`
+	PresetAddressBookAlias    string `json:"preset-address-book-alias"`
 }
 
 func (pf *PeerForm) ToPeer() *model.Peer {
@@ -73,7 +76,8 @@ type TagColorForm struct {
 }
 
 type PeerInfoInHeartbeat struct {
-	Id   string `json:"id"`
-	Uuid string `json:"uuid"`
-	Ver  int    `json:"ver"`
+	Id         string `json:"id"`
+	Uuid       string `json:"uuid"`
+	Ver        int    `json:"ver"`
+	ModifiedAt int64  `json:"modified_at"` // 客户端本地的策略时间戳 strategy_timestamp
 }

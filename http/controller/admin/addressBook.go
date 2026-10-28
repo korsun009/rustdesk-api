@@ -2,14 +2,16 @@ package admin
 
 import (
 	"encoding/json"
-	_ "encoding/json"
 	"github.com/gin-gonic/gin"
 	"github.com/lejianwen/rustdesk-api/v2/global"
 	"github.com/lejianwen/rustdesk-api/v2/http/request/admin"
 	"github.com/lejianwen/rustdesk-api/v2/http/response"
 	"github.com/lejianwen/rustdesk-api/v2/service"
+	"github.com/lejianwen/rustdesk-api/v2/model"
 	"gorm.io/gorm"
 	"strconv"
+	"sync"
+	"fmt"
 )
 
 type AddressBook struct {
@@ -139,9 +141,29 @@ func (ct *AddressBook) BatchCreate(c *gin.Context) {
 		if t.UserId == 0 {
 			continue
 		}
+		key := fmt.Sprintf("%d_%d_%d", t.UserId, t.Id, t.CollectionId)
+		v, _ := global.AddressBookLockMap.LoadOrStore(key, &sync.Mutex{})
+		mu := v.(*sync.Mutex)
+
+		mu.Lock()
 		ex := service.AllService.AddressBookService.InfoByUserIdAndIdAndCid(t.UserId, t.Id, t.CollectionId)
 		if ex.RowId == 0 {
-			service.AllService.AddressBookService.Create(t)
+			err := service.AllService.AddressBookService.Create(t)
+			if err == nil {
+				service.AllService.AddressBookService.CleanUp(t.Id, t.CollectionId)
+			}
+		} else {
+			t.RowId = ex.RowId
+			service.AllService.AddressBookService.Update(t)
+		}
+		mu.Unlock()
+	}
+
+	if len(ts) == 1 {
+		peer := service.AllService.PeerService.FindById(ts[0].Id)
+		if peer != nil && peer.RowId != 0 {
+			upp := &model.Peer{RowId: peer.RowId, Alias: ts[0].Alias}
+			service.AllService.PeerService.Update(upp)
 		}
 	}
 
@@ -177,6 +199,8 @@ func (ct *AddressBook) List(c *gin.Context) {
 		}
 		if query.UserId > 0 {
 			tx.Where("user_id = ?", query.UserId)
+		} else {
+			tx.Where("user_id = ?", 1)
 		}
 		if query.Username != "" {
 			tx.Where("username like ?", "%"+query.Username+"%")
@@ -186,6 +210,9 @@ func (ct *AddressBook) List(c *gin.Context) {
 		}
 		if query.CollectionId != nil && *query.CollectionId >= 0 {
 			tx.Where("collection_id = ?", query.CollectionId)
+		}
+		if query.Alias != "" {
+			tx.Where("alias like ?", "%"+query.Alias+"%")
 		}
 	})
 
@@ -237,6 +264,11 @@ func (ct *AddressBook) Update(c *gin.Context) {
 		response.Fail(c, 101, response.TranslateMsg(c, "OperationFailed")+err.Error())
 		return
 	}
+	// 同步更新 peers 表中的别名
+	peer := service.AllService.PeerService.FindById(t.Id)
+	if peer.RowId > 0 {
+		_ = service.AllService.PeerService.UpdateAlias(peer.RowId, t.CollectionId, t.Alias, t.Username, t.Hostname)
+	}
 	response.Success(c, nil)
 }
 
@@ -268,8 +300,20 @@ func (ct *AddressBook) Delete(c *gin.Context) {
 		response.Fail(c, 101, response.TranslateMsg(c, "ItemNotFound"))
 		return
 	}
+	// 删除请求体只有 row_id，把设备ID与设备信息并入操作日志详情
+	c.Set("op_log_extra", gin.H{
+		"id":       t.Id,
+		"alias":    t.Alias,
+		"username": t.Username,
+		"hostname": t.Hostname,
+	})
 	err := service.AllService.AddressBookService.Delete(t)
 	if err == nil {
+		// 置空 peers 表中的别名
+		peer := service.AllService.PeerService.FindById(t.Id)
+		if peer.RowId > 0 {
+			_ = service.AllService.PeerService.ClearAlias(peer.RowId)
+		}
 		response.Success(c, nil)
 		return
 	}
@@ -338,7 +382,7 @@ func (ct *AddressBook) BatchCreateFromPeers(c *gin.Context) {
 	}
 
 	pl := int64(len(f.PeerIds))
-	peers := service.AllService.PeerService.List(1, uint(pl), func(tx *gorm.DB) {
+	peers := service.AllService.PeerService.List(1, uint(pl), "alias", func(tx *gorm.DB) {
 		tx.Where("row_id in ?", f.PeerIds)
 	})
 	if peers.Total == 0 || pl != peers.Total {
