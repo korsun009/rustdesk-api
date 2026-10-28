@@ -31,7 +31,6 @@ jobs:
           SOURCE_REF: ${{ inputs.source_ref }}
         run: |
           if [ -n "$SOURCE_REF" ]; then
-            go mod edit -droprequire=github.com/lejianwen/rustdesk-api/v2 -dropreplace=github.com/lejianwen/rustdesk-api/v2
             go mod tidy
           fi
           go mod download && go mod verify
