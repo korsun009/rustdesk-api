@@ -1,5 +1,8 @@
 # RustDesk API
 
+This is the maintained [korsun009 fork](https://github.com/korsun009/rustdesk-api).
+See [FORK.md](FORK.md) for local fixes, regression coverage, and build instructions.
+
 This project implements the RustDesk API using Go, and includes both a web UI and web client. RustDesk is a remote
 desktop software that provides self-hosted solutions.
 
