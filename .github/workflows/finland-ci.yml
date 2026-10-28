@@ -19,6 +19,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Resolve upstream dependencies
+        run: go mod tidy
       - name: Test native login options and related packages
         run: go test -count=1 -timeout=120s ./http/controller/api ./utils ./service ./lib/jwt ./lib/lock
       - name: Check formatting
@@ -40,4 +42,12 @@ jobs:
         with:
           name: rustdesk-api-linux-amd64
           path: out/
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: module-lock
+          path: |
+            go.mod
+            go.sum
           retention-days: 14
