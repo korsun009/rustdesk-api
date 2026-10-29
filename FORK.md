@@ -2,8 +2,8 @@
 
 This is our maintained repository. Its development upstream is
 [`alonginwind/rustdesk-api`](https://github.com/alonginwind/rustdesk-api).
-The GitHub parent metadata is being migrated from the original lejianwen fork;
-this metadata change is separate from the code base.
+The GitHub fork parent is `alonginwind/rustdesk-api`; the original lejianwen
+repository remains the common network ancestor.
 It integrates the stable [`alonginwind v4.1.8`](https://github.com/alonginwind/rustdesk-api/releases/tag/v4.1.8)
 as its maintained base and is the source of local fixes for our RustDesk API deployment.
 The upstream Go module path is intentionally retained for compatibility.
