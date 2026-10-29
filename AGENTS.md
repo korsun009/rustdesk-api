@@ -6,3 +6,5 @@
 - Use only local `gh`/`git` for GitHub. Before each GitHub write, run `gh auth status` and verify active login is exactly `korsun009`.
 - Keep `origin` pointing to our fork and `remote.pushDefault=origin`; upstream/original are fetch references with disabled push URLs. Use explicit `--repo` arguments for cross-repository inspection.
 - Verify code before publishing. Production deployment is a separate action and must preserve live identities, credentials, databases and network settings.
+
+- When the user asks for a PR in their voice, write it in Russian, in their direct first-person style, with concrete problems, changes and verification; preserve their meaning without copying typos.
