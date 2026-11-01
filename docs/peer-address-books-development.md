@@ -1,8 +1,43 @@
 # Independent device addresses and address books
 
-Local development branch: `feat/peer-address-books`. No PR or production installation is part of this change. The existing OIDC fix remains in its separate PR/branch.
+This contribution adds an optional device/address-book scheme. The OIDC empty-provider fix is independent of this deployment option.
 
-## Contract
+## Deployment opt-in
+
+The new scheme is **disabled by default**, including installations whose YAML
+does not contain the option. Enable it for the entire API deployment:
+
+```yaml
+app:
+  device-address-books: true
+```
+
+Alternatively set `RUSTDESK_API_APP_DEVICE_ADDRESS_BOOKS=true`. The environment
+overrides YAML, including when the YAML key is absent. Restart the API after
+changing configuration; the option is not a user/account/book preference.
+
+With the option off, the original upstream controller/service implementations
+handle peer lists, alias filtering, peer updates, book create/edit/delete/copy,
+full personal-book snapshots and preset enrollment. In particular, the old
+unbound/no-alias personal selection, single-collection copying, global alias
+updates and cleanup behavior are restored. New copy inputs are ignored and the
+connection-address editor rejects writes. Personal-book authorization is retained
+in both modes: `user_id: 1` does not grant another account access to that book.
+
+`GET /api/admin/config/app` reports the read-only boolean
+`device_address_books`. The matching frontend uses it for old/new forms and
+labels. A missing capability (older backend) or failed configuration request
+selects the old UI. New-mode forms wait for configuration before mounting.
+
+The migration stays additive in either mode. Switching the flag itself does not
+delete stored addresses, links or memberships and does not downgrade schema 275.
+However, subsequent **legacy operations retain their original destructive
+semantics**: cleanup or a full snapshot can remove contacts in other collections.
+Back up before changing the deployment mode; switching it back on cannot recover
+contacts removed by such operations. Existing production deployments of this
+feature must explicitly enable the option when upgrading to this version.
+
+## Contract (option enabled)
 
 - `peers.id` is the registered client ID. Administrative updates reject a different ID.
 - `peers.connection_address` is an optional device-level destination template. An empty stored value falls back to the registered ID. Updating it does not change existing book entries or client/server network settings.
