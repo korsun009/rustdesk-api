@@ -35,7 +35,7 @@ jobs:
           fi
           go mod download && go mod verify
       - name: Test account devices, address books, login and related packages
-        run: go test -mod=readonly -count=1 -timeout=180s ./http/controller/... ./http/request/... ./http/router ./utils ./service ./lib/jwt ./lib/lock ./model/...
+        run: go test -mod=readonly -count=1 -timeout=180s ./config ./http/controller/... ./http/request/... ./http/router ./utils ./service ./lib/jwt ./lib/lock ./model/...
       - name: Check formatting
         run: test -z "$(gofmt -l http/controller/api/login.go http/controller/api/login_test.go)"
       - name: Install static C toolchain for SQLite
